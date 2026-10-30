@@ -41,6 +41,7 @@
   .btn { display: block; width: 100%; padding: 16px; border-radius: var(--radius); font-weight: 700; font-size: 17px; background: var(--accent); color: var(--accent-ink); margin-top: 12px; }
   .btn:disabled { background: var(--surface-2); color: var(--muted); }
   .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); font-weight: 600; }
+  .btn.danger { background: var(--bad); color: #fff; }
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; }
 
@@ -54,12 +55,21 @@
   .icon-btn { width: 48px; height: 48px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 18px; flex: none; }
   .icon-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .hint { color: var(--muted); font-size: 14px; }
+  .ok-text { color: var(--good); font-size: 14px; margin: 10px 0 0; }
+  .warn-text { color: var(--bad); font-size: 15px; font-weight: 600; margin: 12px 0 10px; }
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; }
+  .kv span { color: var(--muted); }
+  .choice { padding: 14px 10px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; font-size: 15px; }
+  .choice.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .stepper { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .stepper b { flex: 1; text-align: center; font-size: 22px; }
 
   /* game header */
   .top { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 12px; }
   .round-no { font-size: 14px; color: var(--muted); }
   .cards-no { font-size: 28px; font-weight: 800; }
   .cards-no small { font-size: 15px; font-weight: 500; color: var(--muted); }
+  .deal { font-size: 13px; color: var(--muted); }
   .menu-btn { padding: 10px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
   .progress { height: 4px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin-bottom: 14px; }
   .progress > div { height: 100%; background: var(--accent); }
@@ -105,6 +115,7 @@
   /* sheet */
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
   .sheet { background: var(--surface); width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet p { margin: 4px 0 4px; font-size: 17px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -112,9 +123,17 @@
 
 <script>
 // ---- regels ----
-const SCHEDULE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
 const MIN_PLAYERS = 2;
-const MAX_PLAYERS = 5; // 5 x 10 kaarten = 50, past in een spel van 52
+const MAX_PLAYERS = 12;
+const TOP = 10;         // hoogste ronde als er genoeg kaarten zijn
+const TOP_REPEATS = 3;  // de hoogste ronde speel je altijd 3x
+const DECK = 52;
+
+// 1, 2 … top-1, top × 3, top-1 … 1
+function buildSchedule(top) {
+  const up = Array.from({ length: top - 1 }, (_, i) => i + 1);
+  return [...up, ...Array(TOP_REPEATS).fill(top), ...up.slice().reverse()];
+}
 
 function score(bid, tricks) {
   return bid === tricks ? 10 + 3 * tricks : -3 * Math.abs(bid - tricks);
@@ -123,10 +142,10 @@ function score(bid, tricks) {
 // ---- state ----
 const STORE_KEY = 'boerenbridge-v1';
 let state = load() || freshSetup(['', '', '', '']);
-let menuOpen = false;
+let sheet = null; // null | 'menu' | 'confirmNew'
 
-function freshSetup(players) {
-  return { screen: 'setup', players, firstDealer: 0 };
+function freshSetup(players, deck = DECK) {
+  return { screen: 'setup', players, firstDealer: 0, deck, shortage: null };
 }
 
 function load() {
@@ -137,12 +156,24 @@ function save() {
 }
 
 const n = () => state.players.length;
+const deck = () => state.deck || DECK;
+const schedule = () => state.schedule || buildSchedule(TOP);
 const roundIdx = () => state.history.length;
-const cards = () => SCHEDULE[roundIdx()];
+const cards = () => schedule()[roundIdx()];
 const dealerOf = r => (state.firstDealer + r) % n();
 // biedvolgorde: links van de deler begint, deler als laatste
 const orderOf = r => Array.from({ length: n() }, (_, i) => (dealerOf(r) + 1 + i) % n());
 const totals = () => state.players.map((_, p) => state.history.reduce((s, h) => s + h.scores[p], 0));
+
+// Past de hoogste ronde in het aantal kaarten? Zo niet: extra kaarten of rondes inkorten.
+function deckPlan() {
+  const need = TOP * n();
+  if (need <= deck()) return { ok: true, top: TOP, need };
+  if (state.shortage === 'short') return { ok: true, top: Math.floor(deck() / n()), need, short: true };
+  return { ok: false, top: TOP, need };
+}
+
+const canStart = () => n() >= MIN_PLAYERS && state.players.every(p => p.trim()) && deckPlan().ok;
 
 function newRound() {
   state.cur = { phase: 'bid', bids: Array(n()).fill(null), tricks: Array(n()).fill(null) };
@@ -166,16 +197,15 @@ function render() {
   if (state.screen === 'setup') app.innerHTML = setupView();
   else if (state.screen === 'game') app.innerHTML = gameView();
   else app.innerHTML = endView();
-  if (menuOpen) app.insertAdjacentHTML('beforeend', menuView());
+  if (sheet) app.insertAdjacentHTML('beforeend', sheetView());
 }
 
 function setupView() {
   const ps = state.players;
-  const valid = ps.length >= MIN_PLAYERS && ps.every(p => p.trim());
   return `
     <h1>Boerenbridge</h1>
-    <p class="sub">${SCHEDULE.length} rondes: 1 t/m 10 kaarten, 3× tien, en terug naar 1.</p>
-    <h2>Spelers</h2>
+    <p class="sub">Vul de spelers in en controleer de kaarten.</p>
+    <h2>Spelers (${ps.length})</h2>
     ${ps.map((p, i) => `
       <div class="player-input">
         <button class="icon-btn ${state.firstDealer === i ? 'on' : ''}" data-act="dealer" data-i="${i}" aria-label="Deelt eerst">🂠</button>
@@ -184,12 +214,45 @@ function setupView() {
       </div>`).join('')}
     <p class="hint">Tik op 🂠 om te kiezen wie als eerste deelt. Zet de spelers in de volgorde waarin jullie aan tafel zitten.</p>
     ${ps.length < MAX_PLAYERS ? `<button class="btn ghost" data-act="add">+ Speler toevoegen</button>` : ''}
-    <button class="btn" data-act="start" ${valid ? '' : 'disabled'}>Start spel</button>
+
+    <h2>Kaarten</h2>
+    ${deckView()}
+
+    <button class="btn" data-act="start" ${canStart() ? '' : 'disabled'}>Start spel</button>
   `;
+}
+
+function deckView() {
+  const plan = deckPlan(), np = n(), d = deck();
+  const enough = plan.need <= d;
+  const rounds = buildSchedule(plan.top).length;
+  const showStepper = state.shortage === 'extra' || d !== DECK;
+  return `
+    <div class="card">
+      <div class="kv"><span>Kaarten in het spel</span><b>${d}</b></div>
+      <div class="kv"><span>Nodig voor ronde van ${TOP}</span><b>${np} × ${TOP} = ${plan.need}</b></div>
+      ${enough ? '' : `
+        <p class="warn-text">Met ${np} spelers kom je ${plan.need - d} kaarten te kort. Wat doen jullie?</p>
+        <div class="row">
+          <button class="choice ${state.shortage === 'extra' ? 'on' : ''}" data-act="shortage" data-v="extra">Extra kaarten toegevoegd</button>
+          <button class="choice ${state.shortage === 'short' ? 'on' : ''}" data-act="shortage" data-v="short">Rondes inkorten</button>
+        </div>`}
+      ${showStepper ? `
+        <div class="stepper">
+          <button class="icon-btn" data-act="deck" data-v="-1" aria-label="Minder kaarten">−</button>
+          <b>${d}</b>
+          <button class="icon-btn" data-act="deck" data-v="1" aria-label="Meer kaarten">+</button>
+          <button class="choice" data-act="deck" data-v="52">+52</button>
+        </div>` : ''}
+      ${plan.ok
+        ? `<p class="ok-text">✓ ${rounds} rondes: 1 t/m ${plan.top} kaarten, ${TOP_REPEATS}× ${plan.top}, en terug naar 1.${plan.short ? ' (ingekort)' : ''}</p>`
+        : state.shortage === 'extra' ? `<p class="hint" style="margin-top:10px">Zet het aantal kaarten op minimaal ${plan.need}.</p>` : ''}
+    </div>`;
 }
 
 function gameView() {
   const r = roundIdx(), c = cards(), cur = state.cur, d = dealerOf(r), order = orderOf(r);
+  const total = schedule().length;
   const isBid = cur.phase === 'bid';
   const values = isBid ? cur.bids : cur.tricks;
   const sum = values.reduce((a, b) => a + (b ?? 0), 0);
@@ -208,12 +271,13 @@ function gameView() {
   return `
     <div class="top">
       <div>
-        <div class="round-no">Ronde ${r + 1} van ${SCHEDULE.length}</div>
-        <div class="cards-no">${c} <small>${c === 1 ? 'kaart' : 'kaarten'}</small></div>
+        <div class="round-no">Ronde ${r + 1} van ${total}</div>
+        <div class="cards-no">${c} <small>${c === 1 ? 'kaart' : 'kaarten'} p.p.</small></div>
+        <div class="deal">Uitdelen: ${n()} × ${c} = ${n() * c} van ${deck()} kaarten</div>
       </div>
       <button class="menu-btn" data-act="menu">Menu</button>
     </div>
-    <div class="progress"><div style="width:${(r / SCHEDULE.length) * 100}%"></div></div>
+    <div class="progress"><div style="width:${(r / total) * 100}%"></div></div>
 
     <div class="phase">
       <b>${isBid ? 'Bieden' : 'Slagen gehaald'}</b>
@@ -251,7 +315,7 @@ function standingsView() {
   const t = totals();
   const last = state.history[state.history.length - 1];
   const ranked = state.players.map((name, p) => ({ name, p, tot: t[p] })).sort((a, b) => b.tot - a.tot);
-  return `<div class="card">${ranked.map((x, i) => {
+  return `<div class="card">${ranked.map(x => {
     const delta = last ? last.scores[x.p] : null;
     const rank = ranked.findIndex(y => y.tot === x.tot) + 1;
     return `<div class="stand pos-${rank}">
@@ -284,15 +348,16 @@ function endView() {
   `;
 }
 
-function menuView() {
-  return `
-    <div class="overlay" data-act="close">
-      <div class="sheet">
-        ${state.history.length ? `<button class="btn ghost" data-act="undo">Vorige ronde aanpassen</button>` : ''}
-        <button class="btn ghost" data-act="new">Nieuw spel</button>
-        <button class="btn" data-act="close">Sluiten</button>
-      </div>
-    </div>`;
+function sheetView() {
+  const body = sheet === 'confirmNew'
+    ? `<p>Huidig spel stoppen en een nieuw spel beginnen?</p>
+       <p class="hint">De stand van dit spel gaat verloren.</p>
+       <button class="btn danger" data-act="newYes">Ja, nieuw spel</button>
+       <button class="btn ghost" data-act="close">Annuleren</button>`
+    : `${state.history.length ? `<button class="btn ghost" data-act="undo">Vorige ronde aanpassen</button>` : ''}
+       <button class="btn ghost" data-act="new">Nieuw spel</button>
+       <button class="btn" data-act="close">Sluiten</button>`;
+  return `<div class="overlay" data-act="close"><div class="sheet">${body}</div></div>`;
 }
 
 // ---- acties ----
@@ -300,8 +365,7 @@ app.addEventListener('input', e => {
   if (e.target.dataset.act === 'name') {
     state.players[+e.target.dataset.i] = e.target.value;
     save();
-    const startBtn = app.querySelector('[data-act="start"]');
-    startBtn.disabled = !state.players.every(p => p.trim());
+    app.querySelector('[data-act="start"]').disabled = !canStart();
   }
 });
 
@@ -325,8 +389,11 @@ app.addEventListener('click', e => {
       state.firstDealer = Math.min(state.firstDealer, n() - 1);
       break;
     case 'dealer': state.firstDealer = +el.dataset.i; break;
+    case 'shortage': state.shortage = el.dataset.v; break;
+    case 'deck': state.deck = Math.max(n(), deck() + +el.dataset.v); break;
     case 'start':
       state.players = state.players.map(p => p.trim());
+      state.schedule = buildSchedule(deckPlan().top);
       state.screen = 'game'; state.history = []; newRound();
       break;
     case 'pick': {
@@ -345,7 +412,7 @@ app.addEventListener('click', e => {
     case 'finish': {
       const { bids, tricks } = state.cur;
       state.history.push({ cards: cards(), bids, tricks, scores: bids.map((b, p) => score(b, tricks[p])) });
-      if (state.history.length === SCHEDULE.length) state.screen = 'end';
+      if (state.history.length === schedule().length) state.screen = 'end';
       else newRound();
       scrollTo(0, 0);
       break;
@@ -353,19 +420,21 @@ app.addEventListener('click', e => {
     case 'undo': {
       const last = state.history.pop();
       state.cur = { phase: 'tricks', bids: last.bids, tricks: last.tricks };
-      state.screen = 'game'; menuOpen = false;
+      state.screen = 'game'; sheet = null;
       break;
     }
     case 'new':
-      if (!confirm('Huidig spel stoppen en een nieuw spel beginnen?')) return;
-      menuOpen = false; state = freshSetup(state.players);
+      // een afgelopen spel hoeft niet bevestigd te worden
+      if (state.screen === 'end') state = freshSetup(state.players, deck());
+      else sheet = 'confirmNew';
       break;
+    case 'newYes': sheet = null; state = freshSetup(state.players, deck()); scrollTo(0, 0); break;
     case 'rematch':
       state.firstDealer = (state.firstDealer + 1) % n();
       state.screen = 'game'; state.history = []; newRound();
       break;
-    case 'menu': menuOpen = true; break;
-    case 'close': menuOpen = false; break;
+    case 'menu': sheet = 'menu'; break;
+    case 'close': sheet = null; break;
   }
   render();
 });

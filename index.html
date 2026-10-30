@@ -64,6 +64,12 @@
   .stepper { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
   .stepper b { flex: 1; text-align: center; font-size: 22px; }
 
+  /* kiezen wie deelt (demo) */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 12px 16px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-weight: 600; }
+  .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .demo-tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #2b3a55; color: #9cc0ff; vertical-align: middle; }
+
   /* game header */
   .top { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 12px; }
   .round-no { font-size: 14px; color: var(--muted); }
@@ -122,6 +128,10 @@
 <div id="app"></div>
 
 <script>
+// Demo: open met ?demo om bij elk nieuw spel te kiezen wie deelt, of een minigame te spelen.
+const DEMO = new URLSearchParams(location.search).has('demo');
+if (DEMO) document.head.appendChild(Object.assign(document.createElement('script'), { src: 'minigames.js' }));
+
 // ---- regels ----
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 12;
@@ -195,6 +205,7 @@ const signed = v => (v > 0 ? '+' : '') + v;
 function render() {
   save();
   if (state.screen === 'setup') app.innerHTML = setupView();
+  else if (state.screen === 'choose') app.innerHTML = chooseView();
   else if (state.screen === 'game') app.innerHTML = gameView();
   else app.innerHTML = endView();
   if (sheet) app.insertAdjacentHTML('beforeend', sheetView());
@@ -203,16 +214,16 @@ function render() {
 function setupView() {
   const ps = state.players;
   return `
-    <h1>Boerenbridge</h1>
+    <h1>Boerenbridge ${DEMO ? '<span class="demo-tag">DEMO</span>' : ''}</h1>
     <p class="sub">Vul de spelers in en controleer de kaarten.</p>
     <h2>Spelers (${ps.length})</h2>
     ${ps.map((p, i) => `
       <div class="player-input">
-        <button class="icon-btn ${state.firstDealer === i ? 'on' : ''}" data-act="dealer" data-i="${i}" aria-label="Deelt eerst">🂠</button>
+        ${DEMO ? '' : `<button class="icon-btn ${state.firstDealer === i ? 'on' : ''}" data-act="dealer" data-i="${i}" aria-label="Deelt eerst">🂠</button>`}
         <input value="${esc(p)}" placeholder="Speler ${i + 1}" data-act="name" data-i="${i}" autocomplete="off" enterkeyhint="next">
         ${ps.length > MIN_PLAYERS ? `<button class="icon-btn" data-act="remove" data-i="${i}" aria-label="Verwijder">✕</button>` : ''}
       </div>`).join('')}
-    <p class="hint">Tik op 🂠 om te kiezen wie als eerste deelt. Zet de spelers in de volgorde waarin jullie aan tafel zitten.</p>
+    <p class="hint">${DEMO ? '' : 'Tik op 🂠 om te kiezen wie als eerste deelt. '}Zet de spelers in de volgorde waarin jullie aan tafel zitten.</p>
     ${ps.length < MAX_PLAYERS ? `<button class="btn ghost" data-act="add">+ Speler toevoegen</button>` : ''}
 
     <h2>Kaarten</h2>
@@ -250,6 +261,25 @@ function deckView() {
     </div>`;
 }
 
+function chooseView() {
+  const chips = role => state.players.map((p, i) => {
+    const on = role === 'dealer' ? state.dealerSet && state.firstDealer === i : state.keeper === i;
+    return `<button class="chip ${on ? 'on' : ''}" data-act="setRole" data-role="${role}" data-i="${i}">${esc(p)}</button>`;
+  }).join('');
+  return `
+    <h1>Wie deelt er?</h1>
+    <p class="sub">Kies zelf of laat een minigame beslissen.</p>
+    <h2>Eerste deler</h2>
+    <div class="chips">${chips('dealer')}</div>
+    <button class="btn ghost" data-act="mini" data-role="dealer">🎲 Minigame: wie gaat delen?</button>
+    <h2>Puntenteller (optioneel)</h2>
+    <div class="chips">${chips('keeper')}</div>
+    <button class="btn ghost" data-act="mini" data-role="keeper">🎲 Minigame: wie houdt de punten bij?</button>
+    <button class="btn" data-act="begin" ${state.dealerSet ? '' : 'disabled'}>Start spel</button>
+    <button class="btn ghost" data-act="backSetup">Terug</button>
+  `;
+}
+
 function gameView() {
   const r = roundIdx(), c = cards(), cur = state.cur, d = dealerOf(r), order = orderOf(r);
   const total = schedule().length;
@@ -274,6 +304,7 @@ function gameView() {
         <div class="round-no">Ronde ${r + 1} van ${total}</div>
         <div class="cards-no">${c} <small>${c === 1 ? 'kaart' : 'kaarten'} p.p.</small></div>
         <div class="deal">Uitdelen: ${n()} × ${c} = ${n() * c} van ${deck()} kaarten</div>
+        ${state.keeper != null ? `<div class="deal">✎ ${esc(state.players[state.keeper])} houdt de punten bij</div>` : ''}
       </div>
       <button class="menu-btn" data-act="menu">Menu</button>
     </div>
@@ -394,8 +425,29 @@ app.addEventListener('click', e => {
     case 'start':
       state.players = state.players.map(p => p.trim());
       state.schedule = buildSchedule(deckPlan().top);
+      if (DEMO) { state.screen = 'choose'; state.dealerSet = false; state.keeper = null; break; }
       state.screen = 'game'; state.history = []; newRound();
       break;
+    case 'setRole': {
+      const i = +el.dataset.i;
+      if (el.dataset.role === 'dealer') { state.firstDealer = i; state.dealerSet = true; }
+      else state.keeper = state.keeper === i ? null : i;
+      break;
+    }
+    case 'mini': {
+      const role = el.dataset.role;
+      MiniGames.open({
+        players: state.players, stake: role,
+        onDone: i => {
+          if (role === 'dealer') { state.firstDealer = i; state.dealerSet = true; }
+          else state.keeper = i;
+          render();
+        },
+      });
+      return;
+    }
+    case 'begin': state.screen = 'game'; state.history = []; newRound(); break;
+    case 'backSetup': state.screen = 'setup'; break;
     case 'pick': {
       const p = +el.dataset.p, v = +el.dataset.v, cur = state.cur;
       const arr = cur.phase === 'bid' ? cur.bids : cur.tricks;
@@ -434,6 +486,7 @@ app.addEventListener('click', e => {
       break;
     case 'newYes': sheet = null; state = freshSetup(state.players, deck()); scrollTo(0, 0); break;
     case 'rematch':
+      if (DEMO) { state.screen = 'choose'; state.dealerSet = false; state.keeper = null; break; }
       state.firstDealer = (state.firstDealer + 1) % n();
       state.screen = 'game'; state.history = []; newRound();
       break;

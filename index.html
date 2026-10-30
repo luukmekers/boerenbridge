@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Boerenbridge</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0f1115;
+    --surface: #1a1d24;
+    --surface-2: #242833;
+    --line: #2e3340;
+    --text: #e8eaf0;
+    --muted: #8b91a1;
+    --accent: #f5b301;
+    --accent-ink: #1a1400;
+    --good: #3ddc84;
+    --bad: #ff5c5c;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom));
+    max-width: 560px; margin: 0 auto;
+  }
+  h1 { font-size: 26px; margin: 20px 0 4px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 24px 0 8px; }
+  p.sub { color: var(--muted); margin: 0 0 16px; }
+  button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+  button:disabled { cursor: default; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+
+  .btn { display: block; width: 100%; padding: 16px; border-radius: var(--radius); font-weight: 700; font-size: 17px; background: var(--accent); color: var(--accent-ink); margin-top: 12px; }
+  .btn:disabled { background: var(--surface-2); color: var(--muted); }
+  .btn.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); font-weight: 600; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+
+  /* setup */
+  .player-input { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .player-input input {
+    flex: 1; min-width: 0; padding: 14px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--text); font: inherit;
+  }
+  .player-input input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .icon-btn { width: 48px; height: 48px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 18px; flex: none; }
+  .icon-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 14px; }
+
+  /* game header */
+  .top { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 12px; }
+  .round-no { font-size: 14px; color: var(--muted); }
+  .cards-no { font-size: 28px; font-weight: 800; }
+  .cards-no small { font-size: 15px; font-weight: 500; color: var(--muted); }
+  .menu-btn { padding: 10px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+  .progress { height: 4px; background: var(--surface-2); border-radius: 4px; overflow: hidden; margin-bottom: 14px; }
+  .progress > div { height: 100%; background: var(--accent); }
+  .phase { display: flex; justify-content: space-between; align-items: baseline; }
+  .phase b { font-size: 18px; }
+  .sum { font-size: 14px; color: var(--muted); }
+  .sum.ok { color: var(--good); }
+  .sum.warn { color: var(--bad); }
+
+  /* player entry */
+  .p-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .p-name { font-weight: 700; font-size: 17px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+  .badge.dealer { background: var(--accent); color: var(--accent-ink); }
+  .badge.starter { background: #2b3a55; color: #9cc0ff; }
+  .bid-tag { font-size: 13px; color: var(--muted); }
+  .nums { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+  .num {
+    height: 48px; border-radius: 10px; background: var(--surface-2); font-size: 19px; font-weight: 700;
+    transition: transform .05s;
+  }
+  .num:active { transform: scale(.94); }
+  .num.sel { background: var(--accent); color: var(--accent-ink); }
+  .num.match { box-shadow: inset 0 0 0 2px var(--muted); }
+  .num:disabled { opacity: .25; text-decoration: line-through; }
+
+  /* standings */
+  .stand { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .stand:last-child { border-bottom: 0; }
+  .stand .pos { width: 28px; color: var(--muted); font-weight: 700; }
+  .stand .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stand .delta { width: 56px; text-align: right; font-size: 14px; }
+  .stand .tot { width: 64px; text-align: right; font-weight: 800; font-size: 18px; }
+  .pos-1 .pos, .pos-1 .tot { color: var(--accent); }
+  .plus { color: var(--good); }
+  .min { color: var(--bad); }
+
+  /* end */
+  .winner { text-align: center; padding: 28px 14px; }
+  .winner .trophy { font-size: 56px; }
+  .winner .name { font-size: 28px; font-weight: 800; color: var(--accent); margin-top: 6px; }
+
+  /* sheet */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .sheet { background: var(--surface); width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ---- regels ----
+const SCHEDULE = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 5; // 5 x 10 kaarten = 50, past in een spel van 52
+
+function score(bid, tricks) {
+  return bid === tricks ? 10 + 3 * tricks : -3 * Math.abs(bid - tricks);
+}
+
+// ---- state ----
+const STORE_KEY = 'boerenbridge-v1';
+let state = load() || freshSetup(['', '', '', '']);
+let menuOpen = false;
+
+function freshSetup(players) {
+  return { screen: 'setup', players, firstDealer: 0 };
+}
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; }
+}
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {}
+}
+
+const n = () => state.players.length;
+const roundIdx = () => state.history.length;
+const cards = () => SCHEDULE[roundIdx()];
+const dealerOf = r => (state.firstDealer + r) % n();
+// biedvolgorde: links van de deler begint, deler als laatste
+const orderOf = r => Array.from({ length: n() }, (_, i) => (dealerOf(r) + 1 + i) % n());
+const totals = () => state.players.map((_, p) => state.history.reduce((s, h) => s + h.scores[p], 0));
+
+function newRound() {
+  state.cur = { phase: 'bid', bids: Array(n()).fill(null), tricks: Array(n()).fill(null) };
+}
+
+function forbiddenBid() {
+  const d = dealerOf(roundIdx());
+  const others = state.cur.bids.filter((b, p) => p !== d);
+  if (others.some(b => b === null)) return null;
+  const f = cards() - others.reduce((a, b) => a + b, 0);
+  return f >= 0 && f <= cards() ? f : null;
+}
+
+// ---- render ----
+const app = document.getElementById('app');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const signed = v => (v > 0 ? '+' : '') + v;
+
+function render() {
+  save();
+  if (state.screen === 'setup') app.innerHTML = setupView();
+  else if (state.screen === 'game') app.innerHTML = gameView();
+  else app.innerHTML = endView();
+  if (menuOpen) app.insertAdjacentHTML('beforeend', menuView());
+}
+
+function setupView() {
+  const ps = state.players;
+  const valid = ps.length >= MIN_PLAYERS && ps.every(p => p.trim());
+  return `
+    <h1>Boerenbridge</h1>
+    <p class="sub">${SCHEDULE.length} rondes: 1 t/m 10 kaarten, 3× tien, en terug naar 1.</p>
+    <h2>Spelers</h2>
+    ${ps.map((p, i) => `
+      <div class="player-input">
+        <button class="icon-btn ${state.firstDealer === i ? 'on' : ''}" data-act="dealer" data-i="${i}" aria-label="Deelt eerst">🂠</button>
+        <input value="${esc(p)}" placeholder="Speler ${i + 1}" data-act="name" data-i="${i}" autocomplete="off" enterkeyhint="next">
+        ${ps.length > MIN_PLAYERS ? `<button class="icon-btn" data-act="remove" data-i="${i}" aria-label="Verwijder">✕</button>` : ''}
+      </div>`).join('')}
+    <p class="hint">Tik op 🂠 om te kiezen wie als eerste deelt. Zet de spelers in de volgorde waarin jullie aan tafel zitten.</p>
+    ${ps.length < MAX_PLAYERS ? `<button class="btn ghost" data-act="add">+ Speler toevoegen</button>` : ''}
+    <button class="btn" data-act="start" ${valid ? '' : 'disabled'}>Start spel</button>
+  `;
+}
+
+function gameView() {
+  const r = roundIdx(), c = cards(), cur = state.cur, d = dealerOf(r), order = orderOf(r);
+  const isBid = cur.phase === 'bid';
+  const values = isBid ? cur.bids : cur.tricks;
+  const sum = values.reduce((a, b) => a + (b ?? 0), 0);
+  const forbidden = isBid ? forbiddenBid() : null;
+  const complete = values.every(v => v !== null);
+  const canGo = isBid ? complete && cur.bids[d] !== forbidden : complete && sum === c;
+
+  let sumText, sumCls = '';
+  if (isBid) {
+    sumText = `Geboden: ${sum} van ${c}` + (sum > c ? ' (overbieding)' : sum < c && complete ? ' (onderbieding)' : '');
+  } else {
+    sumText = `Slagen: ${sum} / ${c}`;
+    sumCls = sum === c ? 'ok' : sum > c ? 'warn' : '';
+  }
+
+  return `
+    <div class="top">
+      <div>
+        <div class="round-no">Ronde ${r + 1} van ${SCHEDULE.length}</div>
+        <div class="cards-no">${c} <small>${c === 1 ? 'kaart' : 'kaarten'}</small></div>
+      </div>
+      <button class="menu-btn" data-act="menu">Menu</button>
+    </div>
+    <div class="progress"><div style="width:${(r / SCHEDULE.length) * 100}%"></div></div>
+
+    <div class="phase">
+      <b>${isBid ? 'Bieden' : 'Slagen gehaald'}</b>
+      <span class="sum ${sumCls}">${sumText}</span>
+    </div>
+    <div style="height:10px"></div>
+
+    ${order.map((p, i) => `
+      <div class="card">
+        <div class="p-head">
+          <span class="p-name">${esc(state.players[p])}</span>
+          ${!isBid ? `<span class="bid-tag">bod ${cur.bids[p]}</span>` : ''}
+          ${i === 0 ? '<span class="badge starter">begint</span>' : ''}
+          ${p === d ? '<span class="badge dealer">deelt</span>' : ''}
+        </div>
+        <div class="nums">
+          ${Array.from({ length: c + 1 }, (_, v) => `
+            <button class="num ${values[p] === v ? 'sel' : ''} ${!isBid && cur.bids[p] === v && values[p] !== v ? 'match' : ''}"
+              data-act="pick" data-p="${p}" data-v="${v}"
+              ${isBid && p === d && v === forbidden ? 'disabled' : ''}>${v}</button>`).join('')}
+        </div>
+      </div>`).join('')}
+
+    ${isBid
+      ? `<button class="btn" data-act="toTricks" ${canGo ? '' : 'disabled'}>Biedingen klaar</button>`
+      : `<button class="btn" data-act="finish" ${canGo ? '' : 'disabled'}>${sum === c || !complete ? 'Ronde afronden' : `Totaal moet ${c} zijn`}</button>
+         <button class="btn ghost" data-act="toBid">Terug naar bieden</button>`}
+
+    <h2>Stand</h2>
+    ${standingsView()}
+  `;
+}
+
+function standingsView() {
+  const t = totals();
+  const last = state.history[state.history.length - 1];
+  const ranked = state.players.map((name, p) => ({ name, p, tot: t[p] })).sort((a, b) => b.tot - a.tot);
+  return `<div class="card">${ranked.map((x, i) => {
+    const delta = last ? last.scores[x.p] : null;
+    const rank = ranked.findIndex(y => y.tot === x.tot) + 1;
+    return `<div class="stand pos-${rank}">
+      <span class="pos">${rank}</span>
+      <span class="nm">${esc(x.name)}</span>
+      <span class="delta ${delta > 0 ? 'plus' : delta < 0 ? 'min' : ''}">${delta === null ? '' : signed(delta)}</span>
+      <span class="tot">${x.tot}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function endView() {
+  const t = totals();
+  const best = Math.max(...t);
+  const winners = state.players.filter((_, p) => t[p] === best);
+  return `
+    <div class="card winner">
+      <div class="trophy">🏆</div>
+      <div class="hint">${winners.length > 1 ? 'Gedeelde winst' : 'Winnaar'}</div>
+      <div class="name">${winners.map(esc).join(' & ')}</div>
+      <div class="hint">${best} punten</div>
+    </div>
+    <h2>Eindstand</h2>
+    ${standingsView()}
+    <button class="btn" data-act="rematch">Nog een potje (zelfde spelers)</button>
+    <div class="row">
+      <button class="btn ghost" data-act="undo">Laatste ronde aanpassen</button>
+      <button class="btn ghost" data-act="new">Nieuw spel</button>
+    </div>
+  `;
+}
+
+function menuView() {
+  return `
+    <div class="overlay" data-act="close">
+      <div class="sheet">
+        ${state.history.length ? `<button class="btn ghost" data-act="undo">Vorige ronde aanpassen</button>` : ''}
+        <button class="btn ghost" data-act="new">Nieuw spel</button>
+        <button class="btn" data-act="close">Sluiten</button>
+      </div>
+    </div>`;
+}
+
+// ---- acties ----
+app.addEventListener('input', e => {
+  if (e.target.dataset.act === 'name') {
+    state.players[+e.target.dataset.i] = e.target.value;
+    save();
+    const startBtn = app.querySelector('[data-act="start"]');
+    startBtn.disabled = !state.players.every(p => p.trim());
+  }
+});
+
+app.addEventListener('keydown', e => {
+  if (e.target.dataset.act === 'name' && e.key === 'Enter') {
+    const next = app.querySelector(`input[data-i="${+e.target.dataset.i + 1}"]`);
+    next ? next.focus() : e.target.blur();
+  }
+});
+
+app.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === 'close' && el.classList.contains('overlay') && e.target !== el) return;
+
+  switch (act) {
+    case 'add': state.players.push(''); render(); app.querySelector(`input[data-i="${n() - 1}"]`).focus(); return;
+    case 'remove':
+      state.players.splice(+el.dataset.i, 1);
+      state.firstDealer = Math.min(state.firstDealer, n() - 1);
+      break;
+    case 'dealer': state.firstDealer = +el.dataset.i; break;
+    case 'start':
+      state.players = state.players.map(p => p.trim());
+      state.screen = 'game'; state.history = []; newRound();
+      break;
+    case 'pick': {
+      const p = +el.dataset.p, v = +el.dataset.v, cur = state.cur;
+      const arr = cur.phase === 'bid' ? cur.bids : cur.tricks;
+      arr[p] = arr[p] === v ? null : v;
+      // als een bod van een ander het bod van de deler ongeldig maakt, wis dat bod
+      if (cur.phase === 'bid') {
+        const d = dealerOf(roundIdx());
+        if (cur.bids[d] !== null && cur.bids[d] === forbiddenBid()) cur.bids[d] = null;
+      }
+      break;
+    }
+    case 'toTricks': state.cur.phase = 'tricks'; scrollTo(0, 0); break;
+    case 'toBid': state.cur.phase = 'bid'; break;
+    case 'finish': {
+      const { bids, tricks } = state.cur;
+      state.history.push({ cards: cards(), bids, tricks, scores: bids.map((b, p) => score(b, tricks[p])) });
+      if (state.history.length === SCHEDULE.length) state.screen = 'end';
+      else newRound();
+      scrollTo(0, 0);
+      break;
+    }
+    case 'undo': {
+      const last = state.history.pop();
+      state.cur = { phase: 'tricks', bids: last.bids, tricks: last.tricks };
+      state.screen = 'game'; menuOpen = false;
+      break;
+    }
+    case 'new':
+      if (!confirm('Huidig spel stoppen en een nieuw spel beginnen?')) return;
+      menuOpen = false; state = freshSetup(state.players);
+      break;
+    case 'rematch':
+      state.firstDealer = (state.firstDealer + 1) % n();
+      state.screen = 'game'; state.history = []; newRound();
+      break;
+    case 'menu': menuOpen = true; break;
+    case 'close': menuOpen = false; break;
+  }
+  render();
+});
+
+render();
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>

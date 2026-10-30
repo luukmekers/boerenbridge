@@ -1,5 +1,5 @@
 // Zorgt dat de app ook zonder internet werkt.
-const CACHE = 'boerenbridge-v2';
+const CACHE = 'boerenbridge-v3';
 const FILES = ['./', 'index.html', 'minigames.js', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', e => {

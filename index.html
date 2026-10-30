@@ -405,6 +405,10 @@ app.addEventListener('click', e => {
         const d = dealerOf(roundIdx());
         if (cur.bids[d] !== null && cur.bids[d] === forbiddenBid()) cur.bids[d] = null;
       }
+      // alle slagen zijn verdeeld: wie nog niets heeft, heeft er 0 gehaald
+      if (cur.phase === 'tricks' && cur.tricks.reduce((a, b) => a + (b ?? 0), 0) === cards()) {
+        cur.tricks = cur.tricks.map(t => t ?? 0);
+      }
       break;
     }
     case 'toTricks': state.cur.phase = 'tricks'; scrollTo(0, 0); break;

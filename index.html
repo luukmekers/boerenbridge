@@ -285,12 +285,12 @@ function gameView() {
     </div>
     <div style="height:10px"></div>
 
-    ${order.map((p, i) => `
+    ${state.players.map((name, p) => `
       <div class="card">
         <div class="p-head">
-          <span class="p-name">${esc(state.players[p])}</span>
+          <span class="p-name">${esc(name)}</span>
           ${!isBid ? `<span class="bid-tag">bod ${cur.bids[p]}</span>` : ''}
-          ${i === 0 ? '<span class="badge starter">begint</span>' : ''}
+          ${p === order[0] ? '<span class="badge starter">begint</span>' : ''}
           ${p === d ? '<span class="badge dealer">deelt</span>' : ''}
         </div>
         <div class="nums">

@@ -9,6 +9,7 @@ Scorebord voor boerenbridge op je telefoon. Open de app via GitHub Pages en kies
 - Goed geboden: 10 + 3 punten per slag.
 - Fout geboden: −3 punten per slag verschil.
 - De deler biedt als laatste en mag niet bieden zodat het totaal gelijk is aan het aantal kaarten.
-- De deler schuift elke ronde één plek door.
+- Bij elk nieuw spel kies je zelf wie als eerste deelt (en wie de punten bijhoudt), of laat je een van de 10 minigames beslissen.
+- De deler schuift elke ronde één plek door, in de volgorde van de ingevoerde namen.
 
 Het spel wordt bewaard op je telefoon, dus je kunt de app gewoon sluiten tussendoor.

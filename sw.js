@@ -1,6 +1,6 @@
 // Zorgt dat de app ook zonder internet werkt.
 const CACHE = 'boerenbridge-v1';
-const FILES = ['./', 'index.html', 'manifest.json', 'icon.svg'];
+const FILES = ['./', 'index.html', 'minigames.js', 'manifest.json', 'icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));

@@ -64,11 +64,10 @@
   .stepper { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
   .stepper b { flex: 1; text-align: center; font-size: 22px; }
 
-  /* kiezen wie deelt (demo) */
+  /* kiezen wie deelt */
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip { padding: 12px 16px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-weight: 600; }
   .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .demo-tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #2b3a55; color: #9cc0ff; vertical-align: middle; }
 
   /* game header */
   .top { display: flex; justify-content: space-between; align-items: center; margin: 16px 0 12px; }
@@ -127,11 +126,8 @@
 <body>
 <div id="app"></div>
 
+<script src="minigames.js"></script>
 <script>
-// Demo: open met ?demo om bij elk nieuw spel te kiezen wie deelt, of een minigame te spelen.
-const DEMO = new URLSearchParams(location.search).has('demo');
-if (DEMO) document.head.appendChild(Object.assign(document.createElement('script'), { src: 'minigames.js' }));
-
 // ---- regels ----
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 12;
@@ -214,16 +210,15 @@ function render() {
 function setupView() {
   const ps = state.players;
   return `
-    <h1>Boerenbridge ${DEMO ? '<span class="demo-tag">DEMO</span>' : ''}</h1>
+    <h1>Boerenbridge</h1>
     <p class="sub">Vul de spelers in en controleer de kaarten.</p>
     <h2>Spelers (${ps.length})</h2>
     ${ps.map((p, i) => `
       <div class="player-input">
-        ${DEMO ? '' : `<button class="icon-btn ${state.firstDealer === i ? 'on' : ''}" data-act="dealer" data-i="${i}" aria-label="Deelt eerst">🂠</button>`}
         <input value="${esc(p)}" placeholder="Speler ${i + 1}" data-act="name" data-i="${i}" autocomplete="off" enterkeyhint="next">
         ${ps.length > MIN_PLAYERS ? `<button class="icon-btn" data-act="remove" data-i="${i}" aria-label="Verwijder">✕</button>` : ''}
       </div>`).join('')}
-    <p class="hint">${DEMO ? '' : 'Tik op 🂠 om te kiezen wie als eerste deelt. '}Zet de spelers in de volgorde waarin jullie aan tafel zitten.</p>
+    <p class="hint">Zet de spelers in de volgorde waarin jullie aan tafel zitten.</p>
     ${ps.length < MAX_PLAYERS ? `<button class="btn ghost" data-act="add">+ Speler toevoegen</button>` : ''}
 
     <h2>Kaarten</h2>
@@ -419,14 +414,12 @@ app.addEventListener('click', e => {
       state.players.splice(+el.dataset.i, 1);
       state.firstDealer = Math.min(state.firstDealer, n() - 1);
       break;
-    case 'dealer': state.firstDealer = +el.dataset.i; break;
     case 'shortage': state.shortage = el.dataset.v; break;
     case 'deck': state.deck = Math.max(n(), deck() + +el.dataset.v); break;
     case 'start':
       state.players = state.players.map(p => p.trim());
       state.schedule = buildSchedule(deckPlan().top);
-      if (DEMO) { state.screen = 'choose'; state.dealerSet = false; state.keeper = null; break; }
-      state.screen = 'game'; state.history = []; newRound();
+      state.screen = 'choose'; state.dealerSet = false; state.keeper = null;
       break;
     case 'setRole': {
       const i = +el.dataset.i;
@@ -486,9 +479,7 @@ app.addEventListener('click', e => {
       break;
     case 'newYes': sheet = null; state = freshSetup(state.players, deck()); scrollTo(0, 0); break;
     case 'rematch':
-      if (DEMO) { state.screen = 'choose'; state.dealerSet = false; state.keeper = null; break; }
-      state.firstDealer = (state.firstDealer + 1) % n();
-      state.screen = 'game'; state.history = []; newRound();
+      state.screen = 'choose'; state.dealerSet = false; state.keeper = null;
       break;
     case 'menu': sheet = 'menu'; break;
     case 'close': sheet = null; break;

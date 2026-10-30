@@ -1,4 +1,4 @@
-// Minigames om te bepalen wie deelt of wie de punten bijhoudt (demo).
+// Minigames om te bepalen wie deelt of wie de punten bijhoudt.
 // Gebruik: MiniGames.open({ players: ['Anna', ...], stake: 'dealer' | 'keeper', onDone: index => {} })
 const MiniGames = (() => {
   // ---- hulpjes ----

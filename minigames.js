@@ -13,7 +13,48 @@ const MiniGames = (() => {
     return a;
   }
   const newDeck = () => shuffle(SUITS.flatMap(([s, red], si) => RANKS.map((r, i) => ({ r, s, red, v: (i + 2) * 4 + si }))));
-  const cardHTML = c => `<div class="mg-card ${c.red ? 'red' : ''}"><span>${c.r}</span><span>${c.s}</span></div>`;
+  const cardHTML = (c, cls = '') => `<div class="mg-card ${cls} ${c.red ? 'red' : ''}"><span>${c.r}</span><span>${c.s}</span></div>`;
+  const SIMON = ['#3ddc84', '#ff5c5c', '#f5d000', '#5ab0ff'];
+  const INK = [['rood', '#ff5c5c'], ['blauw', '#5ab0ff'], ['groen', '#3ddc84'], ['geel', '#f5d000']];
+  const fmt1 = v => v.toFixed(1).replace('.', ',');
+
+  function makeSum() {
+    const t = rnd(0, 2);
+    let a, b, q, ans;
+    if (t === 0) { a = rnd(12, 69); b = rnd(6, 39); q = `${a} + ${b}`; ans = a + b; }
+    else if (t === 1) { a = rnd(25, 99); b = rnd(6, a - 6); q = `${a} − ${b}`; ans = a - b; }
+    else { a = rnd(3, 9); b = rnd(3, 12); q = `${a} × ${b}`; ans = a * b; }
+    // foute antwoorden die er dichtbij liggen, zodat gokken niet helpt
+    const opts = new Set([ans]);
+    for (const d of shuffle([-10, -2, -1, 1, 2, 10, t === 2 ? a : 3, t === 2 ? -a : -3])) {
+      if (opts.size === 4) break;
+      if (ans + d > 0) opts.add(ans + d);
+    }
+    return { q, ans, opts: shuffle([...opts]) };
+  }
+
+  // Hoe rond is een getekende lijn? null = te klein of te kort om mee te tellen.
+  function rateCircle(pts) {
+    if (pts.length < 15) return null;
+    const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cy = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+    const radii = pts.map(([x, y]) => Math.hypot(x - cx, y - cy));
+    const r = radii.reduce((a, b) => a + b) / radii.length;
+    if (r < 25) return null;
+    const sd = Math.sqrt(radii.reduce((s, v) => s + (v - r) ** 2, 0) / radii.length);
+    // hoeveel graden je rond bent gegaan
+    let turn = 0;
+    for (let i = 1; i < pts.length; i++) {
+      let d = Math.atan2(pts[i][1] - cy, pts[i][0] - cx) - Math.atan2(pts[i - 1][1] - cy, pts[i - 1][0] - cx);
+      if (d > Math.PI) d -= 2 * Math.PI;
+      if (d < -Math.PI) d += 2 * Math.PI;
+      turn += d;
+    }
+    const cover = Math.abs(turn);
+    if (cover < Math.PI) return null;
+    const gap = Math.hypot(pts[0][0] - pts.at(-1)[0], pts[0][1] - pts.at(-1)[1]) / r;
+    const score = Math.max(0, 100 - sd / r * 250 - Math.max(0, gap - 0.25) * 40) * Math.min(1, cover / (2 * Math.PI * 0.95));
+    return { score, cx, cy, r };
+  }
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   let root = null, ctx = null, timers = [];
@@ -139,40 +180,298 @@ const MiniGames = (() => {
   // ---- de spellen ----
   const GAMES = [
     {
-      icon: '🃏', name: 'Hoogste kaart', short: 'Laagste kaart verliest',
-      rules: 'Iedereen trekt om de beurt een kaart. Wie de laagste kaart heeft, verliest. Aas is hoog; bij gelijke waarde telt de kleur (♠ laag, ♣ hoog).',
+      icon: '🧠', name: 'Kleurenreeks', short: 'Onthoud de reeks',
+      rules: 'Er lichten een paar vlakken op. Tik ze daarna in dezelfde volgorde na. Elke ronde komt er één kleur bij. Wie de kortste reeks onthoudt, verliest.',
       worse: 'low',
       play(ps) { turns(this, ps); },
-      setup: newDeck,
-      turn(stage, deck, done) {
-        stage.innerHTML = `<button class="btn">Trek een kaart</button>`;
-        stage.querySelector('button').onclick = () => {
-          const c = deck.pop();
-          stage.innerHTML = cardHTML(c);
-          done(c.v, c.r + c.s);
+      // iedereen krijgt dezelfde reeks
+      setup: () => Array.from({ length: 30 }, () => rnd(0, 3)),
+      turn(stage, seq, done) {
+        stage.innerHTML = `
+          <div class="mg-simon">${SIMON.map((c, i) => `<button class="mg-sq" data-i="${i}" style="--c:${c}"></button>`).join('')}</div>
+          <p class="mg-msg">Tik op Start en kijk goed</p>
+          <button class="btn">Start</button>`;
+        const sqs = [...stage.querySelectorAll('.mg-sq')], msg = stage.querySelector('.mg-msg');
+        let len = 3, pos = 0, input = false;
+        const flash = (i, ms) => { sqs[i].classList.add('lit'); later(() => sqs[i].classList.remove('lit'), ms); };
+        const playSeq = () => {
+          input = false; pos = 0;
+          msg.textContent = `Kijk goed… (${len} kleuren)`;
+          const step = Math.max(380, 650 - len * 20);
+          for (let k = 0; k < len; k++) later(() => flash(seq[k], step * 0.7), 500 + k * step);
+          later(() => { input = true; msg.textContent = 'Jouw beurt!'; }, 500 + len * step);
+        };
+        stage.querySelector('.btn').onclick = e => { e.currentTarget.remove(); playSeq(); };
+        sqs.forEach(s => s.onpointerdown = () => {
+          if (!input) return;
+          const i = +s.dataset.i;
+          flash(i, 180);
+          if (i !== seq[pos]) {
+            input = false;
+            msg.textContent = 'Fout!';
+            return done(len - 1, `${len - 1} kleuren goed`);
+          }
+          if (++pos < len) return;
+          input = false;
+          if (len === seq.length) return done(len, `${len} kleuren goed`);
+          len++;
+          msg.textContent = 'Goed!';
+          later(playSeq, 700);
+        });
+      },
+    },
+    {
+      icon: '🃏', name: 'Kaartgeheugen', short: 'Welke kaart ontbreekt?',
+      rules: 'Je ziet een paar kaarten. Daarna is er één weg: welke? Elke ronde komt er een kaart bij. Wie de minste rondes goed heeft, verliest.',
+      worse: 'low',
+      play(ps) { turns(this, ps); },
+      setup() {
+        const rounds = [];
+        for (let n = 3; n <= 12; n++) {
+          const d = newDeck(), shown = d.splice(0, n), miss = shown[rnd(0, n - 1)];
+          // lastige keuzes: dezelfde waarde en dezelfde kleur als de ontbrekende kaart
+          const opts = [miss, ...[d.find(c => c.r === miss.r), d.find(c => c.s === miss.s)].filter(Boolean)];
+          while (opts.length < 4) opts.push(d.find(c => !opts.includes(c)));
+          rounds.push({ shown, rest: shuffle(shown.filter(c => c !== miss)), miss, opts: shuffle(opts) });
+        }
+        return rounds;
+      },
+      turn(stage, rounds, done) {
+        stage.innerHTML = `
+          <p class="mg-msg">Tik op Start en onthoud de kaarten</p>
+          <div class="mg-cards"></div>
+          <div class="mg-picks"></div>
+          <button class="btn">Start</button>`;
+        const msg = stage.querySelector('.mg-msg'), cards = stage.querySelector('.mg-cards'), picks = stage.querySelector('.mg-picks');
+        let k = 0;
+        const round = () => {
+          const r = rounds[k];
+          picks.innerHTML = '';
+          cards.innerHTML = r.shown.map(c => cardHTML(c, 'sm')).join('');
+          msg.textContent = `Ronde ${k + 1}: onthoud deze ${r.shown.length} kaarten`;
+          later(() => {
+            cards.innerHTML = r.rest.map(c => cardHTML(c, 'sm')).join('');
+            msg.textContent = 'Welke kaart ontbreekt?';
+            picks.innerHTML = r.opts.map((c, i) => `<button class="mg-pick" data-i="${i}">${cardHTML(c, 'sm')}</button>`).join('');
+            picks.querySelectorAll('.mg-pick').forEach(b => b.onclick = () => {
+              picks.querySelectorAll('.mg-pick').forEach(x => x.disabled = true);
+              const good = r.opts[+b.dataset.i] === r.miss;
+              picks.children[r.opts.indexOf(r.miss)].classList.add('right');
+              if (!good) {
+                b.classList.add('wrong');
+                return done(k, `${k} ${k === 1 ? 'ronde' : 'rondes'} goed`);
+              }
+              if (++k === rounds.length) return done(k, `${k} rondes goed`);
+              msg.textContent = 'Goed!';
+              later(round, 800);
+            });
+          }, 2000 + 400 * r.shown.length);
+        };
+        stage.querySelector('.btn').onclick = e => { e.currentTarget.remove(); round(); };
+      },
+    },
+    {
+      icon: '🎯', name: 'Stop de balk', short: 'Stop precies in het midden',
+      rules: 'Een streepje schuift heen en weer. Tik op het vlak als het precies in het midden staat. Je krijgt 3 pogingen en het gaat steeds sneller. Wie gemiddeld het verst naast zit, verliest.',
+      worse: 'high',
+      play(ps) { turns(this, ps); },
+      turn(stage, _, done) {
+        const SPEEDS = [0.7, 1.1, 1.6]; // keer heen per seconde
+        stage.innerHTML = `
+          <div class="mg-track"><div class="mg-zone"></div><div class="mg-mark"></div></div>
+          <p class="mg-msg">Tik op het vlak om te starten</p>`;
+        const track = stage.querySelector('.mg-track'), mark = stage.querySelector('.mg-mark'), msg = stage.querySelector('.mg-msg');
+        let phase = 'idle', attempt = 0, t0 = 0;
+        const offs = [];
+        const posAt = now => { const ph = ((now - t0) / 1000 * SPEEDS[attempt]) % 2; return ph < 1 ? ph : 2 - ph; };
+        const start = () => {
+          phase = 'run'; t0 = performance.now(); mark.classList.remove('hit');
+          msg.textContent = `Poging ${attempt + 1} van 3`;
+          every(() => { mark.style.left = posAt(performance.now()) * 100 + '%'; }, 16);
+        };
+        track.onpointerdown = () => {
+          if (phase === 'idle') return start();
+          if (phase !== 'run') return;
+          clearTimers();
+          const x = posAt(performance.now()), off = Math.abs(x - 0.5) * 100;
+          mark.style.left = x * 100 + '%'; mark.classList.add('hit');
+          offs.push(off);
+          msg.textContent = `${fmt1(off)}% ernaast`;
+          if (++attempt < 3) { phase = 'pause'; return later(start, 1100); }
+          phase = 'done';
+          const avg = offs.reduce((a, b) => a + b) / offs.length;
+          done(avg, `gemiddeld ${fmt1(avg)}% ernaast`);
         };
       },
     },
     {
-      icon: '🎲', name: 'Dobbelen', short: 'Laagste worp verliest',
-      rules: 'Iedereen gooit om de beurt met twee dobbelstenen. De laagste totale worp verliest.',
+      icon: '🧱', name: 'Toren bouwen', short: 'Bouw de hoogste toren',
+      rules: 'Een blok schuift heen en weer. Tik om het neer te leggen. Wat over de rand steekt valt eraf, dus je blok wordt steeds smaller. Mis je de toren helemaal, dan ben je klaar. De laagste toren verliest.',
       worse: 'low',
       play(ps) { turns(this, ps); },
       turn(stage, _, done) {
-        const FACES = '⚀⚁⚂⚃⚄⚅';
-        stage.innerHTML = `<div class="mg-dice">⚀ ⚀</div><button class="btn">Gooi!</button>`;
-        const dice = stage.querySelector('.mg-dice');
-        stage.querySelector('button').onclick = e => {
+        const ROWS = 9;
+        stage.innerHTML = `<div class="mg-tower"></div><p class="mg-msg">Tik op het vlak om te beginnen</p>`;
+        const tower = stage.querySelector('.mg-tower'), msg = stage.querySelector('.mg-msg');
+        const layers = [{ l: 20, w: 60 }];
+        let phase = 'idle', t0 = 0, mv = null;
+        const level = () => layers.length - 1;
+        const speed = () => Math.min(120, 40 + 6 * level()); // % van de breedte per seconde
+        const xAt = now => {
+          const w = layers[level()].w, range = 100 - w, d = (now - t0) / 1000 * speed() % (2 * range);
+          return d < range ? d : 2 * range - d;
+        };
+        const blk = (b, i, cls) => `<div class="mg-blk ${cls}" style="left:${b.l}%;width:${b.w}%;bottom:${i * 100 / ROWS}%;height:calc(${100 / ROWS}% - 2px)"></div>`;
+        const draw = () => {
+          const off = Math.max(0, layers.length + 1 - ROWS);
+          tower.innerHTML = layers.map((b, i) => i < off ? '' : blk(b, i - off, i ? '' : 'base')).join('')
+            + blk({ l: 0, w: layers[level()].w }, layers.length - off, 'mv');
+          mv = tower.querySelector('.mv');
+          t0 = performance.now();
+        };
+        tower.onpointerdown = () => {
+          if (phase === 'idle') {
+            phase = 'run'; draw(); msg.textContent = 'Hoogte: 0';
+            return every(() => { mv.style.left = xAt(performance.now()) + '%'; }, 16);
+          }
+          if (phase !== 'run') return;
+          const prev = layers[level()], x = xAt(performance.now());
+          let l = Math.max(x, prev.l), w = Math.min(x + prev.w, prev.l + prev.w) - l;
+          if (Math.abs(x - prev.l) < 1.5) { l = prev.l; w = prev.w; } // bijna perfect telt als perfect
+          if (w <= 0) {
+            phase = 'done'; clearTimers();
+            mv.style.left = x + '%'; mv.classList.add('miss');
+            return done(level(), `${level()} ${level() === 1 ? 'verdieping' : 'verdiepingen'}`);
+          }
+          layers.push({ l, w });
+          msg.textContent = `Hoogte: ${level()}`;
+          draw();
+        };
+      },
+    },
+    {
+      icon: '➕', name: 'Snelrekenen', short: 'Zoveel mogelijk sommen',
+      rules: 'Je hebt 20 seconden. Tik bij elke som het goede antwoord. Goed is +1 punt, fout is −1 punt. Wie de minste punten heeft, verliest.',
+      worse: 'low',
+      play(ps) { turns(this, ps); },
+      setup: () => Array.from({ length: 80 }, makeSum),
+      turn(stage, sums, done) {
+        stage.innerHTML = `
+          <div class="mg-timer">20,0 s · 0 punten</div>
+          <div class="mg-q">Klaar?</div>
+          <div class="mg-opts"></div>
+          <button class="btn">Start</button>`;
+        const timer = stage.querySelector('.mg-timer'), q = stage.querySelector('.mg-q'), opts = stage.querySelector('.mg-opts');
+        let k = 0, pts = 0, t0 = 0, over = false;
+        const tick = () => { timer.textContent = `${fmt1(Math.max(0, 20 - (performance.now() - t0) / 1000))} s · ${pts} punten`; };
+        const ask = () => {
+          const s = sums[k];
+          q.textContent = s.q;
+          opts.innerHTML = s.opts.map(v => `<button class="mg-opt" data-v="${v}">${v}</button>`).join('');
+          opts.querySelectorAll('.mg-opt').forEach(b => b.onclick = () => {
+            if (over) return;
+            pts += +b.dataset.v === s.ans ? 1 : -1;
+            q.classList.toggle('bad', +b.dataset.v !== s.ans);
+            k++; tick(); ask();
+          });
+        };
+        stage.querySelector('.btn').onclick = e => {
           e.currentTarget.remove();
-          let n = 0;
-          every(() => {
-            const a = rnd(1, 6), b = rnd(1, 6);
-            dice.textContent = `${FACES[a - 1]} ${FACES[b - 1]}`;
-            if (++n === 12) {
-              clearTimers();
-              done(a + b, `${a} + ${b} = ${a + b}`);
-            }
-          }, 60);
+          t0 = performance.now(); ask();
+          every(tick, 100);
+          later(() => {
+            over = true; clearTimers(); tick();
+            q.classList.remove('bad'); q.textContent = 'Tijd!';
+            opts.querySelectorAll('.mg-opt').forEach(b => b.disabled = true);
+            done(pts, `${pts} ${pts === 1 || pts === -1 ? 'punt' : 'punten'}`);
+          }, 20000);
+        };
+      },
+    },
+    {
+      icon: '🎨', name: 'Kleurwoord', short: 'Tik de kleur, niet het woord',
+      rules: 'Je ziet een kleur geschreven in een andere kleur, bijvoorbeeld ROOD in blauwe letters. Tik de kleur van de letters (hier: blauw). 15 woorden, elke fout kost 2 strafseconden. De traagste verliest.',
+      worse: 'high',
+      play(ps) { turns(this, ps); },
+      setup: () => Array.from({ length: 15 }, () => {
+        const w = rnd(0, 3);
+        return { w, ink: (w + rnd(1, 3)) % 4 };
+      }),
+      turn(stage, items, done) {
+        stage.innerHTML = `
+          <div class="mg-word">Klaar?</div>
+          <div class="mg-opts">${INK.map(([n], i) => `<button class="mg-opt" data-i="${i}" disabled>${n}</button>`).join('')}</div>
+          <p class="mg-msg"></p>
+          <button class="btn">Start</button>`;
+        const word = stage.querySelector('.mg-word'), msg = stage.querySelector('.mg-msg'), btns = [...stage.querySelectorAll('.mg-opt')];
+        let k = 0, errors = 0, t0 = 0;
+        const showItem = () => {
+          const it = items[k];
+          word.textContent = INK[it.w][0].toUpperCase();
+          word.style.color = INK[it.ink][1];
+          msg.textContent = `${k + 1} / ${items.length}${errors ? ` · ${errors} fout` : ''}`;
+        };
+        btns.forEach(b => b.onclick = () => {
+          if (+b.dataset.i !== items[k].ink) errors++;
+          if (++k < items.length) return showItem();
+          btns.forEach(x => x.disabled = true);
+          const s = (performance.now() - t0) / 1000 + errors * 2;
+          word.textContent = `${fmt1(s)} s`; word.style.color = '';
+          msg.textContent = errors ? `inclusief ${errors * 2} strafseconden` : 'geen fouten!';
+          done(s, `${fmt1(s)} s (${errors} fout)`);
+        });
+        stage.querySelector('.btn').onclick = e => {
+          e.currentTarget.remove();
+          btns.forEach(x => x.disabled = false);
+          t0 = performance.now(); showItem();
+        };
+      },
+    },
+    {
+      icon: '⭕', name: 'Perfecte cirkel', short: 'Teken de rondste cirkel',
+      rules: 'Teken met één vinger in één keer een cirkel op het vlak. De app meet hoe rond hij is en of hij dicht is. Wie de laagste score heeft, verliest.',
+      worse: 'low',
+      play(ps) { turns(this, ps); },
+      turn(stage, _, done) {
+        stage.innerHTML = `<canvas class="mg-canvas"></canvas><p class="mg-msg">Teken een cirkel</p>`;
+        const cv = stage.querySelector('canvas'), msg = stage.querySelector('.mg-msg'), g = cv.getContext('2d');
+        const size = cv.clientWidth, dpr = window.devicePixelRatio || 1;
+        cv.width = cv.height = size * dpr;
+        g.scale(dpr, dpr);
+        g.lineCap = 'round';
+        const css = getComputedStyle(document.documentElement);
+        let pts = [], drawing = false, finished = false;
+        const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+        cv.onpointerdown = e => {
+          if (finished || drawing) return;
+          drawing = true;
+          try { cv.setPointerCapture(e.pointerId); } catch {}
+          pts = [pos(e)];
+          g.clearRect(0, 0, size, size);
+          msg.textContent = 'Teken een cirkel';
+        };
+        cv.onpointermove = e => {
+          if (!drawing) return;
+          const p = pos(e), l = pts.at(-1);
+          pts.push(p);
+          g.strokeStyle = css.getPropertyValue('--accent').trim(); g.lineWidth = 5; g.setLineDash([]);
+          g.beginPath(); g.moveTo(...l); g.lineTo(...p); g.stroke();
+        };
+        cv.onpointerup = cv.onpointercancel = () => {
+          if (!drawing) return;
+          drawing = false;
+          const res = rateCircle(pts);
+          if (!res) {
+            g.clearRect(0, 0, size, size);
+            msg.textContent = 'Te klein of niet rond genoeg getekend, probeer opnieuw';
+            return;
+          }
+          finished = true;
+          // de perfecte cirkel ter vergelijking
+          g.strokeStyle = css.getPropertyValue('--muted').trim(); g.lineWidth = 2; g.setLineDash([6, 6]);
+          g.beginPath(); g.arc(res.cx, res.cy, res.r, 0, 2 * Math.PI); g.stroke();
+          msg.textContent = '';
+          done(res.score, `${fmt1(res.score)}% rond`);
         };
       },
     },
@@ -253,62 +552,6 @@ const MiniGames = (() => {
             }, 5000);
           }
           big.textContent = ++count;
-        };
-      },
-    },
-    {
-      icon: '🤴', name: 'Boer trekken', short: 'Wie de boer trekt',
-      rules: 'Om de beurt trek je een kaart van de stapel. Wie als eerste een boer trekt, verliest.',
-      play(ps) {
-        const g = this, deck = newDeck();
-        let i = 0, last = null;
-        const turn = () => {
-          const p = ps[i];
-          const w = show(`
-            ${header(g)}
-            <p class="mg-turn">Beurt: <b>${name(p)}</b></p>
-            <div class="mg-stage">
-              ${last ? `${cardHTML(last.c)}<p class="hint">${name(last.p)} trok ${last.c.r}${last.c.s} — geen boer</p>` : '<p class="hint">Nog geen kaart getrokken</p>'}
-            </div>
-            <button class="btn">Trek een kaart</button>
-            <p class="hint" style="text-align:center">Nog ${deck.length} kaarten op de stapel</p>`);
-          w.querySelector('.btn').onclick = () => {
-            const c = deck.pop();
-            if (c.r === 'B') {
-              const w2 = show(`${header(g)}<div class="mg-stage">${cardHTML(c)}<p class="mg-res">💥 Boer! ${name(p)}</p></div><button class="btn">Uitslag</button>`);
-              w2.querySelector('.btn').onclick = () => lose(p, g);
-            } else {
-              last = { p, c };
-              i = (i + 1) % ps.length;
-              turn();
-            }
-          };
-        };
-        turn();
-      },
-    },
-    {
-      icon: '🎡', name: 'Rad van fortuin', short: 'Het rad beslist',
-      rules: 'Draai aan het rad. Waar de pijl op stopt, die verliest.',
-      play(ps) {
-        const g = this, n = ps.length, seg = 360 / n;
-        const grad = ps.map((_, i) => `${COLORS[i % COLORS.length]} ${i * seg}deg ${(i + 1) * seg}deg`).join(',');
-        const w = show(`
-          ${header(g)}
-          <div class="mg-wheel-box">
-            <div class="mg-pointer"></div>
-            <div class="mg-wheel" style="background:conic-gradient(${grad})">
-              ${ps.map((p, i) => `<div class="lbl" style="transform:rotate(${(i + 0.5) * seg}deg)"><span>${name(p)}</span></div>`).join('')}
-            </div>
-          </div>
-          <button class="btn">Draai!</button>`);
-        const btn = w.querySelector('.btn'), wheel = w.querySelector('.mg-wheel');
-        btn.onclick = () => {
-          btn.disabled = true;
-          const k = rnd(0, n - 1);
-          const jitter = (Math.random() - 0.5) * seg * 0.7;
-          wheel.style.transform = `rotate(${360 * 6 - (k + 0.5) * seg + jitter}deg)`;
-          later(() => lose(ps[k], g), 4600);
         };
       },
     },
@@ -403,53 +646,6 @@ const MiniGames = (() => {
         turn();
       },
     },
-    {
-      icon: '🪙', name: 'Kop of munt', short: 'Laatste die fout gokt',
-      rules: 'Iedereen kiest kop of munt, daarna wordt de munt gegooid. Wie goed gokt, is veilig. De rest gaat door naar de volgende ronde, tot er één over is: die verliest.',
-      play(ps) {
-        const g = this;
-        let left = ps.slice(), round = 1;
-        const turn = () => {
-          const guess = {};
-          const w = show(`
-            ${header(g)}
-            <p class="mg-turn">Ronde ${round} — nog ${left.length} in het spel</p>
-            ${left.map(p => `
-              <div class="mg-coinrow"><span>${name(p)}</span>
-                <button class="mg-chip" data-p="${p}" data-v="K">Kop</button>
-                <button class="mg-chip" data-p="${p}" data-v="M">Munt</button>
-              </div>`).join('')}
-            <div class="mg-coin">🪙</div>
-            <button class="btn" data-flip disabled>Gooi de munt</button>`);
-          const flip = w.querySelector('[data-flip]');
-          w.querySelectorAll('.mg-chip').forEach(b => b.onclick = () => {
-            guess[b.dataset.p] = b.dataset.v;
-            w.querySelectorAll(`.mg-chip[data-p="${b.dataset.p}"]`).forEach(x => x.classList.toggle('on', x === b));
-            flip.disabled = left.some(p => !guess[p]);
-          });
-          flip.onclick = () => {
-            flip.disabled = true;
-            w.querySelectorAll('.mg-chip').forEach(b => b.disabled = true);
-            const coin = w.querySelector('.mg-coin');
-            coin.classList.add('flip');
-            const res = Math.random() < 0.5 ? 'K' : 'M';
-            later(() => {
-              const wrong = left.filter(p => guess[p] !== res);
-              coin.textContent = res === 'K' ? 'KOP' : 'MUNT';
-              let text;
-              if (wrong.length === 0 || wrong.length === left.length) text = 'Niemand valt af — nog een keer!';
-              else { left = wrong; text = `Veilig: ${ps.filter(p => !left.includes(p) && guess[p] === res).map(name).join(', ')}`; }
-              round++;
-              flip.insertAdjacentHTML('beforebegin', `<p class="mg-res">${text}</p>`);
-              flip.textContent = left.length === 1 ? 'Uitslag' : 'Volgende ronde';
-              flip.disabled = false;
-              flip.onclick = () => left.length === 1 ? lose(left[0], g) : turn();
-            }, 1100);
-          };
-        };
-        turn();
-      },
-    },
   ];
 
   // ---- stijl ----
@@ -473,7 +669,33 @@ const MiniGames = (() => {
     .mg-pad .big { font-size: 3.5rem; font-variant-numeric: tabular-nums; }
     .mg-card { width: 6.875rem; height: 9.75rem; border-radius: 0.75rem; background: #f4f1e8; color: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 2.5rem; font-weight: 800; line-height: 1.1; box-shadow: 0 0.375rem 1.25rem rgba(0,0,0,.4); }
     .mg-card.red { color: #c62828; }
-    .mg-dice { font-size: 5.25rem; line-height: 1; }
+    .mg-card.sm { width: 3.25rem; height: 4.625rem; font-size: 1.25rem; border-radius: 0.5rem; box-shadow: 0 0.2rem 0.5rem rgba(0,0,0,.4); }
+    .mg-cards { display: flex; flex-wrap: wrap; gap: 0.375rem; justify-content: center; min-height: 4.625rem; }
+    .mg-picks { display: flex; gap: 0.625rem; justify-content: center; }
+    .mg-picks:not(:empty) { width: 100%; border-top: 1px solid var(--line); padding-top: 0.875rem; margin-top: 0.25rem; }
+    .mg-pick { background: none; padding: 0; border-radius: 0.5rem; }
+    .mg-pick .mg-card { outline: 2px solid var(--accent); }
+    .mg-pick.right .mg-card { outline: 0.1875rem solid var(--good); }
+    .mg-pick.wrong .mg-card { outline: 0.1875rem solid var(--bad); }
+    .mg-simon { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; width: min(80vw, 18rem); }
+    .mg-sq { aspect-ratio: 1; border-radius: var(--radius); background: var(--c); opacity: .25; transition: opacity .1s; touch-action: manipulation; }
+    .mg-sq.lit { opacity: 1; box-shadow: 0 0 1.5rem var(--c); }
+    .mg-track { position: relative; width: 100%; height: 7rem; border-radius: var(--radius); background: var(--surface-2); overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: pointer; }
+    .mg-zone { position: absolute; left: 50%; top: 0; bottom: 0; width: 6%; transform: translateX(-50%); background: rgba(61,220,132,.18); border-left: 2px solid var(--good); border-right: 2px solid var(--good); }
+    .mg-mark { position: absolute; left: 0; top: 0.75rem; bottom: 0.75rem; width: 0.375rem; margin-left: -0.1875rem; border-radius: 0.25rem; background: var(--accent); }
+    .mg-mark.hit { background: var(--text); box-shadow: 0 0 0.75rem var(--text); }
+    .mg-tower { position: relative; width: 100%; height: 18rem; border-radius: var(--radius); background: var(--surface-2); overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; cursor: pointer; }
+    .mg-blk { position: absolute; border-radius: 0.25rem; background: var(--accent); }
+    .mg-blk.base { background: var(--muted); }
+    .mg-blk.mv { background: #5ab0ff; }
+    .mg-blk.miss { background: var(--bad); }
+    .mg-timer { color: var(--muted); font-variant-numeric: tabular-nums; }
+    .mg-q { font-size: 2.5rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+    .mg-q.bad { color: var(--bad); }
+    .mg-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.625rem; width: 100%; }
+    .mg-opt { height: 4rem; border-radius: 0.75rem; background: var(--surface-2); border: 1px solid var(--line); font-size: 1.375rem; font-weight: 700; touch-action: manipulation; }
+    .mg-opt:disabled { opacity: .4; }
+    .mg-word { font-size: 3rem; font-weight: 900; letter-spacing: .04em; min-height: 4rem; text-align: center; }
     .mg-res { font-size: 1.25rem; font-weight: 700; text-align: center; color: var(--accent); }
     .mg-list { margin-top: 1rem; }
     .mg-list div { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
@@ -481,11 +703,7 @@ const MiniGames = (() => {
     .mg-big { font-size: 4rem; }
     .mg-loser { font-size: 2.125rem; font-weight: 800; color: var(--accent); margin-top: 0.25rem; }
     .mg-stake { font-size: 1.125rem; margin: 0.25rem 0 0; }
-    .mg-wheel-box { position: relative; width: min(86vw, 21.25rem); aspect-ratio: 1; margin: 1rem auto 0.5rem; }
-    .mg-wheel { position: absolute; inset: 0; border-radius: 50%; transition: transform 4.2s cubic-bezier(.17,.67,.12,1); box-shadow: 0 0 0 0.25rem var(--surface-2); }
-    .mg-wheel .lbl { position: absolute; inset: 0; }
-    .mg-wheel .lbl span { position: absolute; left: 50%; top: 9%; transform: translateX(-50%); font-weight: 800; color: #111; max-width: 34%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.875rem; }
-    .mg-pointer { position: absolute; left: 50%; top: -0.625rem; transform: translateX(-50%); border-left: 0.875rem solid transparent; border-right: 0.875rem solid transparent; border-top: 1.625rem solid var(--text); z-index: 2; }
+    .mg-canvas { display: block; width: min(100%, 21rem); aspect-ratio: 1; border-radius: var(--radius); background: var(--surface-2); touch-action: none; }
     .mg-touch { position: relative; height: 58vh; border-radius: var(--radius); background: var(--surface-2); touch-action: none; overflow: hidden; user-select: none; -webkit-user-select: none; }
     .mg-touch .hint-c { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 1.25rem; pointer-events: none; }
     .mg-dot { position: absolute; width: 5.625rem; height: 5.625rem; margin: -2.8125rem 0 0 -2.8125rem; border-radius: 50%; pointer-events: none; transition: transform .3s; }
@@ -494,14 +712,9 @@ const MiniGames = (() => {
     .mg-input { width: 100%; font: inherit; font-size: 2rem; text-align: center; padding: 0.75rem; border-radius: 0.75rem; border: 1px solid var(--line); background: var(--surface); color: var(--text); }
     .mg-bomb { font-size: 1.25rem; text-align: center; }
     .mg-bomb b { color: var(--accent); font-size: 1.75rem; }
-    .mg-coinrow { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
-    .mg-coinrow span { flex: 1; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .mg-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
     .mg-chip { padding: 0.625rem 1rem; border-radius: 62.4375rem; background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; }
     .mg-chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-    .mg-chip:disabled { opacity: .6; }
-    .mg-coin { font-size: 4rem; text-align: center; font-weight: 800; margin: 1rem 0 0.25rem; transition: transform 1s; }
-    .mg-coin.flip { transform: rotateY(1800deg); }
   `;
   document.head.appendChild(css);
 

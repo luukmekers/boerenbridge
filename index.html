@@ -59,13 +59,8 @@
   .icon-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .hint { color: var(--muted); font-size: 0.875rem; }
   .ok-text { color: var(--good); font-size: 0.875rem; margin: 0.625rem 0 0; }
-  .warn-text { color: var(--bad); font-size: 0.9375rem; font-weight: 600; margin: 0.75rem 0 0.625rem; }
   .kv { display: flex; justify-content: space-between; padding: 0.25rem 0; }
   .kv span { color: var(--muted); }
-  .choice { padding: 0.875rem 0.625rem; border-radius: 0.75rem; background: var(--surface-2); border: 1px solid var(--line); font-weight: 600; font-size: 0.9375rem; }
-  .choice.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .stepper { display: flex; align-items: center; gap: 0.625rem; margin-top: 0.75rem; }
-  .stepper b { flex: 1; text-align: center; font-size: 1.375rem; }
 
   /* kiezen wie deelt */
   .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -153,8 +148,8 @@ const STORE_KEY = 'boerenbridge-v1';
 let state = load() || freshSetup(['', '', '', '']);
 let sheet = null; // null | 'menu' | 'confirmNew'
 
-function freshSetup(players, deck = DECK) {
-  return { screen: 'setup', players, firstDealer: 0, deck, shortage: null };
+function freshSetup(players) {
+  return { screen: 'setup', players, firstDealer: 0 };
 }
 
 function load() {
@@ -165,7 +160,6 @@ function save() {
 }
 
 const n = () => state.players.length;
-const deck = () => state.deck || DECK;
 const schedule = () => state.schedule || buildSchedule(TOP);
 const roundIdx = () => state.history.length;
 const cards = () => schedule()[roundIdx()];
@@ -174,15 +168,14 @@ const dealerOf = r => (state.firstDealer + r) % n();
 const orderOf = r => Array.from({ length: n() }, (_, i) => (dealerOf(r) + 1 + i) % n());
 const totals = () => state.players.map((_, p) => state.history.reduce((s, h) => s + h.scores[p], 0));
 
-// Past de hoogste ronde in het aantal kaarten? Zo niet: extra kaarten of rondes inkorten.
+// Past de hoogste ronde in het aantal kaarten? Zo niet: rondes inkorten.
 function deckPlan() {
   const need = TOP * n();
-  if (need <= deck()) return { ok: true, top: TOP, need };
-  if (state.shortage === 'short') return { ok: true, top: Math.floor(deck() / n()), need, short: true };
-  return { ok: false, top: TOP, need };
+  const top = Math.min(TOP, Math.floor(DECK / n()));
+  return { top, need, short: top < TOP };
 }
 
-const canStart = () => n() >= MIN_PLAYERS && state.players.every(p => p.trim()) && deckPlan().ok;
+const canStart = () => n() >= MIN_PLAYERS && state.players.every(p => p.trim());
 
 function newRound() {
   state.cur = { phase: 'bid', bids: Array(n()).fill(null), tricks: Array(n()).fill(null) };
@@ -232,30 +225,14 @@ function setupView() {
 }
 
 function deckView() {
-  const plan = deckPlan(), np = n(), d = deck();
-  const enough = plan.need <= d;
+  const plan = deckPlan(), np = n();
   const rounds = buildSchedule(plan.top).length;
-  const showStepper = state.shortage === 'extra' || d !== DECK;
   return `
     <div class="card">
-      <div class="kv"><span>Kaarten in het spel</span><b>${d}</b></div>
+      <div class="kv"><span>Kaarten in het spel</span><b>${DECK}</b></div>
       <div class="kv"><span>Nodig voor ronde van ${TOP}</span><b>${np} × ${TOP} = ${plan.need}</b></div>
-      ${enough ? '' : `
-        <p class="warn-text">Met ${np} spelers kom je ${plan.need - d} kaarten te kort. Wat doen jullie?</p>
-        <div class="row">
-          <button class="choice ${state.shortage === 'extra' ? 'on' : ''}" data-act="shortage" data-v="extra">Extra kaarten toegevoegd</button>
-          <button class="choice ${state.shortage === 'short' ? 'on' : ''}" data-act="shortage" data-v="short">Rondes inkorten</button>
-        </div>`}
-      ${showStepper ? `
-        <div class="stepper">
-          <button class="icon-btn" data-act="deck" data-v="-1" aria-label="Minder kaarten">−</button>
-          <b>${d}</b>
-          <button class="icon-btn" data-act="deck" data-v="1" aria-label="Meer kaarten">+</button>
-          <button class="choice" data-act="deck" data-v="52">+52</button>
-        </div>` : ''}
-      ${plan.ok
-        ? `<p class="ok-text">✓ ${rounds} rondes: 1 t/m ${plan.top} kaarten, ${TOP_REPEATS}× ${plan.top}, en terug naar 1.${plan.short ? ' (ingekort)' : ''}</p>`
-        : state.shortage === 'extra' ? `<p class="hint" style="margin-top:10px">Zet het aantal kaarten op minimaal ${plan.need}.</p>` : ''}
+      ${plan.short ? `<p class="hint" style="margin:0.625rem 0 0">Met ${np} spelers zijn er te weinig kaarten voor ${TOP} per speler, dus de rondes gaan tot ${plan.top}.</p>` : ''}
+      <p class="ok-text">✓ ${rounds} rondes: 1 t/m ${plan.top} kaarten, ${TOP_REPEATS}× ${plan.top}, en terug naar 1.${plan.short ? ' (ingekort)' : ''}</p>
     </div>`;
 }
 
@@ -301,7 +278,7 @@ function gameView() {
       <div>
         <div class="round-no">Ronde ${r + 1} van ${total}</div>
         <div class="cards-no">${c} <small>${c === 1 ? 'kaart' : 'kaarten'} p.p.</small></div>
-        <div class="deal">Uitdelen: ${n()} × ${c} = ${n() * c} van ${deck()} kaarten</div>
+        <div class="deal">Uitdelen: ${n()} × ${c} = ${n() * c} van ${DECK} kaarten</div>
         ${state.keeper != null ? `<div class="deal">✎ ${esc(state.players[state.keeper])} houdt de punten bij</div>` : ''}
       </div>
       <button class="menu-btn" data-act="menu">Menu</button>
@@ -417,8 +394,6 @@ app.addEventListener('click', e => {
       state.players.splice(+el.dataset.i, 1);
       state.firstDealer = Math.min(state.firstDealer, n() - 1);
       break;
-    case 'shortage': state.shortage = el.dataset.v; break;
-    case 'deck': state.deck = Math.max(n(), deck() + +el.dataset.v); break;
     case 'start':
       state.players = state.players.map(p => p.trim());
       state.schedule = buildSchedule(deckPlan().top);
@@ -477,10 +452,10 @@ app.addEventListener('click', e => {
     }
     case 'new':
       // een afgelopen spel hoeft niet bevestigd te worden
-      if (state.screen === 'end') state = freshSetup(state.players, deck());
+      if (state.screen === 'end') state = freshSetup(state.players);
       else sheet = 'confirmNew';
       break;
-    case 'newYes': sheet = null; state = freshSetup(state.players, deck()); scrollTo(0, 0); break;
+    case 'newYes': sheet = null; state = freshSetup(state.players); scrollTo(0, 0); break;
     case 'rematch':
       state.screen = 'choose'; state.dealerSet = false; state.keeper = null;
       break;
